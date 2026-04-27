@@ -5,17 +5,23 @@ import {SRPELib} from "../libs/SRPE/SRPE.lib.sol";
 import {ISendraStorage} from "../interfaces/isendra/ISendraStorage.sol";
 import {RPFPStorage} from "./storage/RPFPStorage.sol";
 import {SendraLib} from "../libs/core/Sendra.lib.sol";
+import {ISendraAddressProvider} from "../interfaces/isendra/ISendraAddressProvider.sol";
 
 contract UniversalRuler {
 
+    ISendraAddressProvider public immutable addressProvider;
+
+    constructor(address _addressProvider) {
+        addressProvider = ISendraAddressProvider(_addressProvider);
+    }
+
     function getFunctionsRules(uint256 _rpfpId, bytes4 _functionSelector) internal view returns(SRPELib.Rules memory) {
-        SRPELib.Rules memory rules = RPFPStorage.getFunctionRules(_rpfpId, _functionSelector);
+        SRPELib.Rules memory rules = RPFPStorage(addressProvider.getAddress("RPFPStorage")).getFunctionRules(_rpfpId, _functionSelector);
         return rules;
     }
 
-    function checkExecution(address _executor, bytes memory _actionData, address _sender, uint256 _rpfpId) public view returns (bool) {
-        
-        bytes4 functionSelector = bytes4(_actionData[0:4]);
+    function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
+        bytes4 functionSelector = _getSelector(_actionData);
         SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
         SendraLib.GlobalAccumulators memory gAccumulators;
         bool isGlobalAccumulatorsInitialized = false;
@@ -34,7 +40,7 @@ contract UniversalRuler {
                 || rules.rules[i].ruleType == 19
                 || rules.rules[i].ruleType == 20)
             ) {
-                ISendraStorage sendraStorage = ISendraStorage(0x0000000000000000000000000000000000000000);
+                ISendraStorage sendraStorage = ISendraStorage(addressProvider.getAddress("SendraStorage"));
                 gAccumulators = sendraStorage.getUserGlobalAccumulators(_sender);
                 isGlobalAccumulatorsInitialized = true;
             }
@@ -107,15 +113,13 @@ contract UniversalRuler {
                 
             }
         }
-
-        return true;
     }
 
     error InvalidAction(uint256 ruleIndex, bytes4 functionSelector);
 
     function checkSenderAndFunc(bytes memory ruleData, bytes memory actionData, address sender)public pure returns (bool){
         (bytes4 allowedSelector, address allowedSender) = abi.decode(ruleData, (bytes4, address));
-        bytes4 sel = bytes4(actionData[0:4]);
+        bytes4 sel = _getSelector(actionData);
         return (sel == allowedSelector && sender == allowedSender);
     }
 
@@ -128,7 +132,7 @@ contract UniversalRuler {
         ) 
         = abi.decode(ruleData, (bytes4, address, uint256, bytes32));
         
-        bytes4 sel = bytes4(actionData[0:4]);
+        bytes4 sel = _getSelector(actionData);
         
         uint256 offset = 4 + 32 * paramIndex;
 
@@ -161,8 +165,8 @@ contract UniversalRuler {
         return _isWhitelist ? found : !found;
     }
 
-    function checkUint(bytes memory _ruleData, uint256 _value) public view returns (bool) {
-        uint256[] memory values = abi.decode(_ruleData, (uint256[2]));
+    function checkUint(bytes memory _ruleData, uint256 _value) public pure returns (bool) {
+        uint256[2] memory values = abi.decode(_ruleData, (uint256[2]));
         uint256 _type = values[1];
         if (_type == 0) { // means rule value must be less than the value
             return values[0] < _value;
@@ -173,9 +177,16 @@ contract UniversalRuler {
         }
     }
 
-    function checkUintRange(bytes memory _ruleData, uint256 _value) public view returns (bool) {
-        uint256[] memory range = abi.decode(_ruleData, (uint256[2]));
+    function checkUintRange(bytes memory _ruleData, uint256 _value) public pure returns (bool) {
+        uint256[2] memory range = abi.decode(_ruleData, (uint256[2]));
         return range[0] < _value && _value < range[1];
+    }
+
+    function _getSelector(bytes memory _actionData) internal pure returns (bytes4 sel) {
+        require(_actionData.length >= 4, "actionData too short");
+        assembly {
+            sel := shr(224, mload(add(_actionData, 0x20)))
+        }
     }
 
 }

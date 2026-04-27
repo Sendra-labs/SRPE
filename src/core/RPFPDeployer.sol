@@ -4,13 +4,22 @@ pragma solidity ^0.8.28;
 import {UniversalExecutorFactory} from "./UniversalExecutorFactory.sol";
 import {SRPELib} from "../libs/SRPE/SRPE.lib.sol";
 import {RPFPStorage} from "./storage/RPFPStorage.sol";
+import {ISendraAddressProvider} from "../interfaces/isendra/ISendraAddressProvider.sol";
 
 contract RPFPDeployer {
+
+    ISendraAddressProvider public immutable addressProvider;
+
+    constructor(address _addressProvider) {
+        addressProvider = ISendraAddressProvider(_addressProvider);
+    }
 
     uint256 public constant MAX_RULES = 12;
 
     function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public {
-        address executor = UniversalExecutorFactory.deploySendraExecutor(_newRPFPInputs.implementation);
+        // Deploy an executor instance wired to the AddressProvider.
+        address executor = UniversalExecutorFactory(addressProvider.getAddress("UniversalExecutorFactory"))
+            .deploySendraExecutor(address(addressProvider));
         _newRPFPInputs.rules.ruleCount = _newRPFPInputs.rules.rules.length;
 
         if(_newRPFPInputs.rules.ruleCount == 0 || _newRPFPInputs.rules.ruleCount > MAX_RULES) 
@@ -20,7 +29,7 @@ contract RPFPDeployer {
             revert FunctionRulesLengthMismatch(_newRPFPInputs.functionSelectors.length, _newRPFPInputs.functionSelectorRules.length);
         }
         
-        uint256 rpfpId = RPFPStorage.createRPFP(
+        uint256 rpfpId = RPFPStorage(addressProvider.getAddress("RPFPStorage")).createRPFP(
             _newRPFPInputs._type,
             executor,
             _newRPFPInputs.implementation,
@@ -39,7 +48,7 @@ contract RPFPDeployer {
             if (fr.ruleCount == 0 || fr.ruleCount > MAX_RULES) {
                 revert InvalidRules(fr.ruleCount, MAX_RULES);
             }
-            RPFPStorage.setFunctionRules(rpfpId, _newRPFPInputs.functionSelectors[i], fr);
+            RPFPStorage(addressProvider.getAddress("RPFPStorage")).setFunctionRules(rpfpId, _newRPFPInputs.functionSelectors[i], fr);
         }
 
         emit RPFPDeployed(executor, rpfpId);

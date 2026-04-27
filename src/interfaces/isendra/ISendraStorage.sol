@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {SendraLib} from "../../libs/Sendra.lib.sol";
+import {SendraLib} from "../../libs/core/Sendra.lib.sol";
 
 interface ISendraStorage {
 

@@ -5,8 +5,9 @@ import {UniversalExecutor} from "./execution/UniversalExecutor.sol";
 
 contract UniversalExecutorFactory {
 
-    function deploySendraExecutor(address _implementation) public {
-        address executor = address(new SendraExecutor(_implementation));
+    function deploySendraExecutor(address _addressProvider) public returns (address executor) {
+        executor = address(new UniversalExecutor(_addressProvider));
+        return executor;
     }
 
 }
