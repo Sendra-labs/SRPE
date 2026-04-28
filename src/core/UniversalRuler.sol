@@ -74,18 +74,28 @@ contract UniversalRuler {
                 )) revert InvalidAction(i, functionSelector);
 
             } else if (rules.rules[i].ruleType == 7) {
+                // allow specific function and input_value + inputIndex
+
+                if(!checkFuncAndInput(
+                    rules.rules[i].ruleData,
+                    _actionData
+                )) revert InvalidAction(i, functionSelector);
 
             } else if (rules.rules[i].ruleType == 8) {
                 // usdc amounts limits
                 uint256 paramIndex = abi.decode(rules.rules[i].extraData, (uint256));
                 uint256 offset = 4 + 32 * paramIndex;
+
                 require(_actionData.length >= offset + 32, "actionData too short");
                 uint256 usdcValue;
+
                 assembly {
                     usdcValue := mload(add(add(_actionData, 0x20), offset))
                 }
+
                 if(!checkUintRange(rules.rules[i].ruleData, usdcValue)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 9) {
+                // empty rule
 
             } else if (rules.rules[i].ruleType == 10) {
                 // totalCapitalIn
@@ -94,23 +104,56 @@ contract UniversalRuler {
                 // totalCapitalOut
                 if(!checkUint(rules.rules[i].ruleData, gAccumulators.totalCapitalOut)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 12) {
+                // peakSimultaneousExposure
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.peakSimultaneousExposure)) revert InvalidAction(i, functionSelector);
 
             } else if (rules.rules[i].ruleType == 13) {
-
+                // currentExposure
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.currentExposure)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 14) {
-
+                // cumulativeRealizedPnl
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.cumulativeRealizedPnl)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 15) {
-
+                // grossProfit
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.grossProfit)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 16) {
-                
+                // grossLoss
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.grossLoss)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 17) {
-
+                // highWaterMark
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.highWaterMark)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 18) {
-
+                // maxDrawdown
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.maxDrawdown)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 19) {
-
+                // totalPositionsOpened
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.totalPositionsOpened)) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 20) {
-                
+                // totalPositionsClosed
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.totalPositionsClosed)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 21) {
+                // winCount
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.winCount)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 22) {
+                // lossCount
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.lossCount)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 23) {
+                // totalDurationSeconds
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.totalDurationSeconds)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 24) {
+                // firstActivityTimestamp
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.firstActivityTimestamp)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 25) {
+                // lastActivityTimestamp
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.lastActivityTimestamp)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 26) {
+                // liquidationEvents
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.liquidationEvents)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 27) {
+                // consecutiveLosses
+                if(!checkUint(rules.rules[i].ruleData, gAccumulators.consecutiveLosses)) revert InvalidAction(i, functionSelector);
+            } else if (rules.rules[i].ruleType == 28) {
+                // maxConsecutiveLosses
             }
         }
     }
@@ -151,7 +194,22 @@ contract UniversalRuler {
         }
     }
 
+    function checkFuncAndInput(bytes memory ruleData, bytes memory actionData) public pure returns (bool){
+        (bytes4 allowedSelector, uint256 paramIndex, bytes32 expectedValue) = abi.decode(ruleData, (bytes4, uint256, bytes32));
+        bytes4 sel = _getSelector(actionData);
 
+        uint256 offset = 4 + 32 * paramIndex;
+
+        require(actionData.length >= offset + 32, "actionData too short");
+
+        bytes32 paramValue;
+
+        assembly {
+            paramValue := mload(add(add(actionData, 0x20), offset))
+        }
+
+        return (sel == allowedSelector && paramValue == expectedValue);
+    }
 
     function checkAddressList(bytes memory _ruleData, bool _isWhitelist, address _sender) public pure returns (bool) {
         address[] memory addresses = abi.decode(_ruleData, (address[]));
