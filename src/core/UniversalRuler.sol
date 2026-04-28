@@ -149,7 +149,7 @@ contract UniversalRuler is RulesHelper {
                 if(!checkUint(rules.rules[i].ruleData, uint256(gAccumulators.lastActivityTimestamp))) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 26) {
                 // liquidationEvents
-                if(!checkUint(rules.rules[i].ruleData, uint256(gAccumulators.liquidationEvents))) revert InvalidAction(i, functionSelector);
+                if(!checkUint(rules.rules[i].ruleData, uint256(gAccumulators.totalLiquidationEvents))) revert InvalidAction(i, functionSelector);
             } else if (rules.rules[i].ruleType == 27) {
                 // consecutiveLosses
                 if(!checkUint(rules.rules[i].ruleData, uint256(gAccumulators.consecutiveLosses))) revert InvalidAction(i, functionSelector);
