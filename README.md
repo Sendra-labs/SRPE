@@ -4,6 +4,13 @@ Non-custodial, rule-enforced execution environment. Financial products operate w
 
 This controlled environment enables new financial primitives that are currently impractical in DeFi without trusted intermediaries or overcollateralization.
 
+This repository contains the **first MVP version** of SRPE. It is designed to be **scalable and flexible** for deploying new **Rule-Programmable Financial Products (RPFPs)**. RPFPs can be governed by:
+
+- **Reputation rules** based on verifiable past behavior (on-chain accounting/accumulators).
+- **Forward-looking policy rules** that constrain future actions (e.g., allowing only certain parameter ranges, or allowing a specific `msg.sender` to call a specific function with specific inputs).
+
+In SRPE, **SendraExecutors (UniversalExecutors)** are execution gateways deployed per-RPFP. An executor can only `delegatecall` into the configured **LogicExecutor** (product implementation) set at `deployRPFP()` time, and every user action is always checked against the RPFP’s configured rules. This design preserves flexibility (any function on the LogicExecutor can be executed) while ensuring enforcement (execution is rule-gated by `UniversalRuler`).
+
 <img width="1002" height="630" alt="image" src="https://github.com/user-attachments/assets/fcf1f1b0-2e95-486d-b945-33763464c74c" />
 
 
