@@ -6,7 +6,7 @@ import {ISendraStorage} from "../interfaces/isendra/ISendraStorage.sol";
 import {RPFPStorage} from "./storage/RPFPStorage.sol";
 import {SendraLib} from "../libs/core/Sendra.lib.sol";
 import {ISendraAddressProvider} from "../interfaces/isendra/ISendraAddressProvider.sol";
-import {RulesHelper} from "./rulesHelper.sol";
+import {RulesHelper} from "./RulesHelper.sol";
 
 contract UniversalRuler is RulesHelper {
 
