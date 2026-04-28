@@ -1,4 +1,4 @@
-SendraLabs Rule-Programmable Finance Environment (SRPE)
+# SendraLabs Rule-Programmable Finance Environment (SRPE)
 
 Non-custodial, rule-enforced execution environment. Financial products operate within programmable constraints tied directly to the reputation and accounting layer. Capital moves under smart contract-defined rules, eliminating the need for trust while preserving custody and control.
 
@@ -7,11 +7,11 @@ This controlled environment enables new financial primitives that are currently 
 <img width="1002" height="630" alt="image" src="https://github.com/user-attachments/assets/fcf1f1b0-2e95-486d-b945-33763464c74c" />
 
 
-## Flow (as per the diagram)
+## Flow 
 
 SRPE is designed to separate 4 responsibilities:
 
-- **RPFPDeployer**: deploys and registers a new RPFP (product).
+- **RPFPDeployer**: deploys and registers a new RPFP (Rule Programmable Financial Product).
 - **RPFPStorage**: stores RPFP configuration (implementation, owners, global rules, per-selector rules, etc.).
 - **UniversalExecutor**: the single user entrypoint (`execute()`), performs a `delegatecall` into the product implementation (LogicExecutor) **only if** rules pass.
 - **UniversalRuler**: validates the action before execution by reading rules and (when applicable) reputation/accumulators from the Sendra system.
