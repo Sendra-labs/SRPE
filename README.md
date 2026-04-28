@@ -20,44 +20,46 @@ In practice the flow is:
 
 1) A developer calls `deployRPFP()`. A `UniversalExecutor` instance wired to the `AddressProvider` is deployed, the RPFP is created in `RPFPStorage`, and per-function (selector) rules are registered.
 
-```19:55:src/core/RPFPDeployer.sol
-    function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public {
-        // Deploy an executor instance wired to the AddressProvider.
-        address executor = UniversalExecutorFactory(addressProvider.getAddress("UniversalExecutorFactory"))
-            .deploySendraExecutor(address(addressProvider));
-        _newRPFPInputs.rules.ruleCount = _newRPFPInputs.rules.rules.length;
+Source: `src/core/RPFPDeployer.sol` (lines 19-55)
 
-        if(_newRPFPInputs.rules.ruleCount == 0 || _newRPFPInputs.rules.ruleCount > MAX_RULES) 
+```solidity
+function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public {
+    // Deploy an executor instance wired to the AddressProvider.
+    address executor = UniversalExecutorFactory(addressProvider.getAddress("UniversalExecutorFactory"))
+        .deploySendraExecutor(address(addressProvider));
+    _newRPFPInputs.rules.ruleCount = _newRPFPInputs.rules.rules.length;
+
+    if (_newRPFPInputs.rules.ruleCount == 0 || _newRPFPInputs.rules.ruleCount > MAX_RULES)
         revert InvalidRules(_newRPFPInputs.rules.ruleCount, MAX_RULES);
 
-        if (_newRPFPInputs.functionSelectors.length != _newRPFPInputs.functionSelectorRules.length) {
-            revert FunctionRulesLengthMismatch(_newRPFPInputs.functionSelectors.length, _newRPFPInputs.functionSelectorRules.length);
-        }
-        
-        uint256 rpfpId = RPFPStorage(addressProvider.getAddress("RPFPStorage")).createRPFP(
-            _newRPFPInputs._type,
-            executor,
-            _newRPFPInputs.implementation,
-            _newRPFPInputs.ruler,
-            _newRPFPInputs.owners,
-            _newRPFPInputs.description,
-            _newRPFPInputs.extraData,
-            _newRPFPInputs.rules,
-            _newRPFPInputs.instructions
-        );
-
-        // Store per-function rules blobs (selector => Rules)
-        for (uint256 i = 0; i < _newRPFPInputs.functionSelectors.length; i++) {
-            SRPELib.Rules memory fr = _newRPFPInputs.functionSelectorRules[i];
-            fr.ruleCount = fr.rules.length;
-            if (fr.ruleCount == 0 || fr.ruleCount > MAX_RULES) {
-                revert InvalidRules(fr.ruleCount, MAX_RULES);
-            }
-            RPFPStorage(addressProvider.getAddress("RPFPStorage")).setFunctionRules(rpfpId, _newRPFPInputs.functionSelectors[i], fr);
-        }
-
-        emit RPFPDeployed(executor, rpfpId);
+    if (_newRPFPInputs.functionSelectors.length != _newRPFPInputs.functionSelectorRules.length) {
+        revert FunctionRulesLengthMismatch(_newRPFPInputs.functionSelectors.length, _newRPFPInputs.functionSelectorRules.length);
     }
+    
+    uint256 rpfpId = RPFPStorage(addressProvider.getAddress("RPFPStorage")).createRPFP(
+        _newRPFPInputs._type,
+        executor,
+        _newRPFPInputs.implementation,
+        _newRPFPInputs.ruler,
+        _newRPFPInputs.owners,
+        _newRPFPInputs.description,
+        _newRPFPInputs.extraData,
+        _newRPFPInputs.rules,
+        _newRPFPInputs.instructions
+    );
+
+    // Store per-function rules blobs (selector => Rules)
+    for (uint256 i = 0; i < _newRPFPInputs.functionSelectors.length; i++) {
+        SRPELib.Rules memory fr = _newRPFPInputs.functionSelectorRules[i];
+        fr.ruleCount = fr.rules.length;
+        if (fr.ruleCount == 0 || fr.ruleCount > MAX_RULES) {
+            revert InvalidRules(fr.ruleCount, MAX_RULES);
+        }
+        RPFPStorage(addressProvider.getAddress("RPFPStorage")).setFunctionRules(rpfpId, _newRPFPInputs.functionSelectors[i], fr);
+    }
+
+    emit RPFPDeployed(executor, rpfpId);
+}
 ```
 
 2) A user signs and calls `UniversalExecutor.execute(...)`. The executor:
@@ -65,23 +67,31 @@ In practice the flow is:
 - validates the action via `UniversalRuler`
 - if it passes, performs `delegatecall` to the implementation
 
-```17:32:src/core/execution/UniversalExecutor.sol
-    function execute(SRPELib.ExecutionParams memory _executionParams) public payable returns (bytes memory) {
-        SRPELib.RPFPForRead memory rpfp = RPFPStorage(addressProvider.getAddress("RPFPStorage")).readRPFPById(_executionParams.rpfpId);
-        address target = rpfp.implementation;
-        // check rules
-        UniversalRuler(addressProvider.getAddress("UniversalRuler")).checkExecution(_executionParams.actionData, msg.sender, _executionParams.rpfpId);
+Source: `src/core/execution/UniversalExecutor.sol` (lines 17-32)
 
-        (bool success, bytes memory result) = target.delegatecall(_executionParams.actionData);
-        
-        if (!success) {
-            assembly {
-                revert(add(result, 0x20), mload(result))
-            }
+```solidity
+function execute(SRPELib.ExecutionParams memory _executionParams) public payable returns (bytes memory) {
+    SRPELib.RPFPForRead memory rpfp =
+        RPFPStorage(addressProvider.getAddress("RPFPStorage")).readRPFPById(_executionParams.rpfpId);
+    address target = rpfp.implementation;
+
+    // Check rules (reverts if invalid).
+    UniversalRuler(addressProvider.getAddress("UniversalRuler")).checkExecution(
+        _executionParams.actionData,
+        msg.sender,
+        _executionParams.rpfpId
+    );
+
+    (bool success, bytes memory result) = target.delegatecall(_executionParams.actionData);
+
+    if (!success) {
+        assembly {
+            revert(add(result, 0x20), mload(result))
         }
-
-        return result;
     }
+
+    return result;
+}
 ```
 
 ## Rules by `functionSelector` (set, read, validate)
@@ -89,59 +99,68 @@ In practice the flow is:
 ### Setting rules (deploy-time)
 At deploy-time, selector-specific rules are stored via `RPFPStorage.setFunctionRules(...)`.
 
-```64:70:src/core/storage/RPFPStorage.sol
-    function setFunctionRules(uint256 _id, bytes4 _functionSelector, SRPELib.Rules calldata _rules) public onlyProtocol {
-        rpfps[_id].functionRules[_functionSelector] = _rules;
-    }
+Source: `src/core/storage/RPFPStorage.sol` (lines 68-70)
+
+```solidity
+function setFunctionRules(uint256 _id, bytes4 _functionSelector, SRPELib.Rules calldata _rules) public onlyProtocol {
+    rpfps[_id].functionRules[_functionSelector] = _rules;
+}
 ```
 
 ### Reading rules (runtime)
 `UniversalRuler` derives the selector from `actionData` and fetches the configured rules for that selector.
 
-```18:26:src/core/UniversalRuler.sol
-    function getFunctionsRules(uint256 _rpfpId, bytes4 _functionSelector) internal view returns(SRPELib.Rules memory) {
-        SRPELib.Rules memory rules = RPFPStorage(addressProvider.getAddress("RPFPStorage")).getFunctionRules(_rpfpId, _functionSelector);
-        return rules;
-    }
+Source: `src/core/UniversalRuler.sol` (lines 18-26)
 
-    function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
-        bytes4 functionSelector = _getSelector(_actionData);
-        SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
-        // ...
-    }
+```solidity
+function getFunctionsRules(uint256 _rpfpId, bytes4 _functionSelector) internal view returns (SRPELib.Rules memory) {
+    SRPELib.Rules memory rules =
+        RPFPStorage(addressProvider.getAddress("RPFPStorage")).getFunctionRules(_rpfpId, _functionSelector);
+    return rules;
+}
+
+function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
+    bytes4 functionSelector = _getSelector(_actionData);
+    SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
+    // ...
+}
 ```
 
 ### Validation (runtime)
 `checkExecution()` iterates the rules registered for that selector and reverts if any of them fails (AND semantics).
 Additionally, when reputation rules are present (10+), it reads accumulators from `SendraStorage` (resolved via `AddressProvider`).
 
-```23:58:src/core/UniversalRuler.sol
-    function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
-        bytes4 functionSelector = _getSelector(_actionData);
-        SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
-        SendraLib.GlobalAccumulators memory gAccumulators;
-        bool isGlobalAccumulatorsInitialized = false;
-        for (uint256 i = 0; i < rules.ruleCount; i++) {
-            if(
-                !isGlobalAccumulatorsInitialized &&
-                (rules.rules[i].ruleType == 10
-                || rules.rules[i].ruleType == 11
-                || rules.rules[i].ruleType == 12
-                || rules.rules[i].ruleType == 13
-                || rules.rules[i].ruleType == 14
-                || rules.rules[i].ruleType == 15
-                || rules.rules[i].ruleType == 16
-                || rules.rules[i].ruleType == 17
-                || rules.rules[i].ruleType == 18
-                || rules.rules[i].ruleType == 19
-                || rules.rules[i].ruleType == 20)
-            ) {
-                ISendraStorage sendraStorage = ISendraStorage(addressProvider.getAddress("SendraStorage"));
-                gAccumulators = sendraStorage.getUserGlobalAccumulators(_sender);
-                isGlobalAccumulatorsInitialized = true;
-            }
-            // Examples: whitelist/blacklist/limits by input/reputation...
-            // If any rule fails, it reverts with InvalidAction(i, functionSelector)
+Source: `src/core/UniversalRuler.sol` (lines 23-116)
+
+```solidity
+function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
+    bytes4 functionSelector = _getSelector(_actionData);
+    SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
+    SendraLib.GlobalAccumulators memory gAccumulators;
+    bool isGlobalAccumulatorsInitialized = false;
+
+    for (uint256 i = 0; i < rules.ruleCount; i++) {
+        if (
+            !isGlobalAccumulatorsInitialized &&
+            (rules.rules[i].ruleType == 10 ||
+                rules.rules[i].ruleType == 11 ||
+                rules.rules[i].ruleType == 12 ||
+                rules.rules[i].ruleType == 13 ||
+                rules.rules[i].ruleType == 14 ||
+                rules.rules[i].ruleType == 15 ||
+                rules.rules[i].ruleType == 16 ||
+                rules.rules[i].ruleType == 17 ||
+                rules.rules[i].ruleType == 18 ||
+                rules.rules[i].ruleType == 19 ||
+                rules.rules[i].ruleType == 20)
+        ) {
+            ISendraStorage sendraStorage = ISendraStorage(addressProvider.getAddress("SendraStorage"));
+            gAccumulators = sendraStorage.getUserGlobalAccumulators(_sender);
+            isGlobalAccumulatorsInitialized = true;
         }
+
+        // Examples: whitelist/blacklist/limits by input/reputation...
+        // If any rule fails, it reverts with InvalidAction(i, functionSelector)
     }
+}
 ```
