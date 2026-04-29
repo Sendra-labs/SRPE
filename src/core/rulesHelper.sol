@@ -86,7 +86,7 @@ abstract contract RulesHelper {
     function _getSelector(bytes memory _actionData) internal pure returns (bytes4 sel) {
         require(_actionData.length >= 4, "actionData too short");
         assembly {
-            sel := shr(224, mload(add(_actionData, 0x20)))
+            sel := mload(add(_actionData, 0x20))
         }
     }
 

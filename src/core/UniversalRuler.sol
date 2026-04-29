@@ -39,7 +39,15 @@ contract UniversalRuler is RulesHelper {
                 || rules.rules[i].ruleType == 17
                 || rules.rules[i].ruleType == 18
                 || rules.rules[i].ruleType == 19
-                || rules.rules[i].ruleType == 20)
+                || rules.rules[i].ruleType == 20
+                || rules.rules[i].ruleType == 21
+                || rules.rules[i].ruleType == 22
+                || rules.rules[i].ruleType == 23
+                || rules.rules[i].ruleType == 24
+                || rules.rules[i].ruleType == 25
+                || rules.rules[i].ruleType == 26
+                || rules.rules[i].ruleType == 27
+                || rules.rules[i].ruleType == 28)
             ) {
                 ISendraStorage sendraStorage = ISendraStorage(addressProvider.getAddress("SendraStorage"));
                 gAccumulators = sendraStorage.getUserGlobalAccumulators(_sender);
