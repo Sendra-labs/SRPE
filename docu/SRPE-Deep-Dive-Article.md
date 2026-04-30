@@ -42,8 +42,7 @@ struct RPFP {
   mapping(bytes4 => Rules) functionRules;
 }
 
-// Global rules catalog (stored), plus per-selector rules mapping (stored).
-struct RulesBlob {
+struct Rules {
   uint256 ruleCount;
   Rule[]  rules;
 }
