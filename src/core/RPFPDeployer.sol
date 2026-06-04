@@ -16,7 +16,7 @@ contract RPFPDeployer {
 
     uint256 public constant MAX_RULES = 12;
 
-    function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public {
+    function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public returns (address, uint256) {
         // Deploy an executor instance wired to the AddressProvider.
         address executor = UniversalExecutorFactory(addressProvider.getAddress("UniversalExecutorFactory"))
             .deploySendraExecutor(address(addressProvider));
@@ -52,6 +52,7 @@ contract RPFPDeployer {
         }
 
         emit RPFPDeployed(executor, rpfpId);
+        return (executor, rpfpId);
     }
 
     event RPFPDeployed(address indexed executor, uint256 indexed rpfpId);
