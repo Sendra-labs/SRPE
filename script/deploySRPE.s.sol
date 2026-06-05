@@ -19,6 +19,8 @@ import {RPFPDeployer} from "../src/core/RPFPDeployer.sol";
  *
  * Usage:
  *   forge script script/deploySRPE.s.sol:DeploySRPE --rpc-url arbitrum --broadcast
+ *
+ * Requires ADMIN1_PRIVATE_KEY in .env (admin on the Sendra AddressProvider).
  */
 contract DeploySRPE is Script {
     address public constant ADDRESS_PROVIDER = 0xf57eA29702f75e43761C0398e8e06d0DF1223070;
@@ -27,7 +29,8 @@ contract DeploySRPE is Script {
     function run() public {
         ISendraAddressProvider provider = ISendraAddressProvider(ADDRESS_PROVIDER);
 
-        vm.startBroadcast();
+        uint256 adminKey = vm.envUint("ADMIN1_PRIVATE_KEY");
+        vm.startBroadcast(adminKey);
 
         RPFPStorage rpfpStorage = new RPFPStorage();
         UniversalRuler universalRuler = new UniversalRuler(ADDRESS_PROVIDER);
