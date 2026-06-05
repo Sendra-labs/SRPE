@@ -22,8 +22,8 @@ contract RPFPDeployer {
             .deploySendraExecutor(address(addressProvider));
         _newRPFPInputs.rules.ruleCount = _newRPFPInputs.rules.rules.length;
 
-        if(_newRPFPInputs.rules.ruleCount == 0 || _newRPFPInputs.rules.ruleCount > MAX_RULES) 
-        revert InvalidRules(_newRPFPInputs.rules.ruleCount, MAX_RULES);
+        if(_newRPFPInputs.functionSelectors.length == 0 || _newRPFPInputs.functionSelectors.length > MAX_FUNCTION_SELECTORS) 
+        revert InvalidFunctionSelectors(_newRPFPInputs.functionSelectors.length, MAX_FUNCTION_SELECTORS);
 
         if (_newRPFPInputs.functionSelectors.length != _newRPFPInputs.functionSelectorRules.length) {
             revert FunctionRulesLengthMismatch(_newRPFPInputs.functionSelectors.length, _newRPFPInputs.functionSelectorRules.length);
