@@ -15,6 +15,7 @@ contract RPFPDeployer {
     }
 
     uint256 public constant MAX_RULES = 12;
+    uint256 public constant MAX_FUNCTION_SELECTORS = 12;
 
     function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public returns (address, uint256) {
         // Deploy an executor instance wired to the AddressProvider.
@@ -58,6 +59,7 @@ contract RPFPDeployer {
     event RPFPDeployed(address indexed executor, uint256 indexed rpfpId);
 
     error InvalidRules(uint256 ruleCount, uint256 maxRules);
+    error InvalidFunctionSelectors(uint256 selectorsLength, uint256 maxSelectors);
     error FunctionRulesLengthMismatch(uint256 selectorsLength, uint256 rulesLength);
 
 }
