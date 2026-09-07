@@ -8,6 +8,7 @@ import {SimpleStorage} from "../src/core/demo/SimpleStorage.sol";
 import {SimpleLogic} from "../src/core/demo/SimpleLogic.sol";
 import {MockedAddressProvider} from "../src/core/demo/MockedAddressProv.sol";
 import {MockedSendra} from "../src/core/demo/MockedSendra.sol";
+import {MockedRoles} from "../src/core/demo/MockedRoles.sol";
 import {RPFPStorage} from "../src/core/storage/RPFPStorage.sol";
 import {UniversalRuler} from "../src/core/UniversalRuler.sol";
 import {UniversalExecutorFactory} from "../src/core/UniversalExecutorFactory.sol";
@@ -17,6 +18,7 @@ import {UniversalExecutor} from "../src/core/execution/UniversalExecutor.sol";
 contract RPFPFlowTest is Test {
     MockedAddressProvider internal addressProvider;
     MockedSendra internal mockedSendra;
+    MockedRoles internal roles;
     RPFPStorage internal rpfpStorage;
     UniversalRuler internal ruler;
     UniversalExecutorFactory internal executorFactory;
@@ -43,10 +45,15 @@ contract RPFPFlowTest is Test {
 
         addressProvider = new MockedAddressProvider();
         mockedSendra = new MockedSendra();
-        rpfpStorage = new RPFPStorage();
+        roles = new MockedRoles();
+        addressProvider.setRoles(address(roles));
+
+        rpfpStorage = new RPFPStorage(address(addressProvider));
         ruler = new UniversalRuler(address(addressProvider));
         executorFactory = new UniversalExecutorFactory();
         deployer = new RPFPDeployer(address(addressProvider));
+
+        roles.allowContract(address(deployer));
 
         addressProvider.setMockedSendra(address(mockedSendra));
         addressProvider.setRPFPStorage(address(rpfpStorage));

@@ -10,6 +10,7 @@ import {UniversalExecutor} from "../../src/core/execution/UniversalExecutor.sol"
 import {RPFPDeployer} from "../../src/core/RPFPDeployer.sol";
 import {MockedSendra} from "../../src/core/demo/MockedSendra.sol";
 import {MockedAddressProvider} from "../../src/core/demo/MockedAddressProv.sol";
+import {MockedRoles} from "../../src/core/demo/MockedRoles.sol";
 import {RPFPStorage} from "../../src/core/storage/RPFPStorage.sol";
 import {UniversalRuler} from "../../src/core/UniversalRuler.sol";
 import {UniversalExecutorFactory} from "../../src/core/UniversalExecutorFactory.sol";
@@ -25,10 +26,15 @@ contract DemoAndDeploy is Script {
 
         MockedAddressProvider addressProvider = new MockedAddressProvider();
         MockedSendra mockedSendra = new MockedSendra();
-        RPFPStorage rpfpStorage = new RPFPStorage();
+        MockedRoles roles = new MockedRoles();
+        addressProvider.setRoles(address(roles));
+
+        RPFPStorage rpfpStorage = new RPFPStorage(address(addressProvider));
         UniversalRuler universalRuler = new UniversalRuler(address(addressProvider));
         UniversalExecutorFactory universalExecutorFactory = new UniversalExecutorFactory();
         RPFPDeployer rpfpDeployer = new RPFPDeployer(address(addressProvider));
+
+        roles.allowContract(address(rpfpDeployer));
 
         addressProvider.setMockedSendra(address(mockedSendra));
         addressProvider.setUniversalExecutorFactory(address(universalExecutorFactory));

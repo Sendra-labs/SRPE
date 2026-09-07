@@ -2,17 +2,26 @@
 pragma solidity ^0.8.28;
 
 import {SRPELib} from "../../libs/SRPE/SRPE.lib.sol";
+import {ISendraAddressProvider} from "../../interfaces/isendra/ISendraAddressProvider.sol";
+import {ISendraRoles} from "../../interfaces/isendra/ISendraRoles.sol";
 
 contract RPFPStorage {
+    ISendraAddressProvider public immutable addressProvider;
 
+    constructor(address _addressProvider) {
+        addressProvider = ISendraAddressProvider(_addressProvider);
+    }
+
+    /// @notice Restricts writes to contracts whitelisted by the Sendra Roles registry.
     modifier onlyProtocol() {
-        //
+        if (!ISendraRoles(addressProvider.getAddress("Roles")).isProtocolContract(msg.sender)) {
+            revert SenderNotAllowed();
+        }
         _;
     }
 
     uint256 public nextRPFPId;
 
-    
     mapping(uint256 => SRPELib.RPFP) internal rpfps;
 
     function createRPFP(
@@ -79,4 +88,5 @@ contract RPFPStorage {
 
     event RPFPCreated(uint256 indexed id, address indexed executor, address indexed implementation, address ruler);
 
+    error SenderNotAllowed();
 }

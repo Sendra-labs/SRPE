@@ -23,8 +23,8 @@ import {RPFPDeployer} from "../src/core/RPFPDeployer.sol";
  * Requires ADMIN1_PRIVATE_KEY in .env (admin on the Sendra AddressProvider).
  */
 contract DeploySRPE is Script {
-    address public constant ADDRESS_PROVIDER = 0xf57eA29702f75e43761C0398e8e06d0DF1223070;
-    address public constant SENDRA_STORAGE = 0x023c59881eeCa9Fad30455ca4A6AE13608Cf0276;
+    address public constant ADDRESS_PROVIDER = 0xaF7A2feFBA6Acc09e62011d0359dC06e0e1245f5;
+    address public constant SENDRA_STORAGE = 0x898258E70C2b3626EF65B5B4c39bb6F37ebcD4Fd;
 
     function run() public {
         ISendraAddressProvider provider = ISendraAddressProvider(ADDRESS_PROVIDER);
@@ -32,7 +32,7 @@ contract DeploySRPE is Script {
         uint256 adminKey = vm.envUint("ADMIN1_PRIVATE_KEY");
         vm.startBroadcast(adminKey);
 
-        RPFPStorage rpfpStorage = new RPFPStorage();
+        RPFPStorage rpfpStorage = new RPFPStorage(ADDRESS_PROVIDER);
         UniversalRuler universalRuler = new UniversalRuler(ADDRESS_PROVIDER);
         UniversalExecutorFactory universalExecutorFactory = new UniversalExecutorFactory();
         RPFPDeployer rpfpDeployer = new RPFPDeployer(ADDRESS_PROVIDER);
