@@ -16,6 +16,7 @@ contract UniversalExecutor {
 
     function execute(SRPELib.ExecutionParams memory _executionParams) public payable returns (bytes memory) {
         SRPELib.RPFPForRead memory rpfp = RPFPStorage(addressProvider.getAddress("RPFPStorage")).readRPFPById(_executionParams.rpfpId);
+        if (rpfp.executor != address(this)) revert InvalidExecutor();
         address target = rpfp.implementation;
         // check rules
         UniversalRuler(addressProvider.getAddress("UniversalRuler")).checkExecution(_executionParams.actionData, msg.sender, _executionParams.rpfpId);
@@ -32,5 +33,6 @@ contract UniversalExecutor {
     }
 
     error InvalidAction();
+    error InvalidExecutor();
 
 }

@@ -164,6 +164,26 @@ contract RPFPFlowTest is Test {
         assertEq(simpleStorage.count2(), 777);
     }
 
+    function test_execute_revertsWhenRpfpBelongsToAnotherExecutor() public {
+        SRPELib.NewRPFPInputs memory inputs;
+        inputs._type = 0;
+        inputs.implementation = address(simpleLogic);
+        inputs.ruler = address(ruler);
+        inputs.functionSelectors = new bytes4[](1);
+        inputs.functionSelectors[0] = THIRD_SEL;
+        inputs.functionSelectorRules = new SRPELib.Rules[](1);
+        inputs.functionSelectorRules[0] = _noOpRules();
+
+        (, uint256 otherId) = deployer.deployRPFP(inputs);
+
+        SRPELib.ExecutionParams memory p;
+        p.rpfpId = otherId;
+        p.actionData = abi.encodeWithSelector(THIRD_SEL, uint256(1));
+
+        vm.expectRevert(UniversalExecutor.InvalidExecutor.selector);
+        executor.execute(p);
+    }
+
     function _firstFunctionRules(address allowed, uint256 deadline) internal pure returns (SRPELib.Rules memory) {
         SRPELib.Rule[] memory arr = new SRPELib.Rule[](2);
         arr[0] = SRPELib.Rule({
