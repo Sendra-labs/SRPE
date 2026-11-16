@@ -1,173 +1,161 @@
-# SendraLabs Rule-Programmable Finance Environment (SRPE)
+# SendraLabs Rule-Programmable Environment (SRPE)
 
-Non-custodial, rule-enforced execution environment. Financial products operate within programmable constraints tied directly to the reputation and accounting layer. Capital moves under smart contract-defined rules, eliminating the need for trust while preserving custody and control.
+Non-custodial execution for financial products. Each product is an enclave: a dedicated executor, a logic contract, and a policy that is checked before that logic runs. Policy can require a sender, a calldata argument (pool, token, amount, recipient), a cooldown, or a figure from Sendra Storage's financial accumulators.
 
-This controlled environment enables new financial primitives that are currently impractical in DeFi without trusted intermediaries or overcollateralization.
+The branch `srpe-v2` is the current implementation. V1 remains the behaviour this version replaces.
 
-This repository contains the **first MVP version** of SRPE. It is designed to be **scalable and flexible** for deploying new **Rule-Programmable Financial Products (RPFPs)**. RPFPs can be governed by:
+## What V1 did
 
-- **Reputation rules** based on verifiable past behavior (on-chain accounting/accumulators).
-- **Forward-looking policy rules** that constrain future actions (e.g., allowing only certain parameter ranges, or allowing a specific `msg.sender` to call a specific function with specific inputs).
+V1 (`develop` before this branch) deployed one `UniversalExecutor` per RPFP and `delegatecall`ed into a logic contract after `UniversalRuler.checkExecution`.
 
-In SRPE, **SendraExecutors (UniversalExecutors)** are execution gateways deployed per-RPFP. An executor can only `delegatecall` into the configured **LogicExecutor** (product implementation) set at `deployRPFP()` time, and every user action is always checked against the RPFP’s configured rules. This design preserves flexibility (any function on the LogicExecutor can be executed) while ensuring enforcement (execution is rule-gated by `UniversalRuler`).
+It could:
 
-<img width="1002" height="630" alt="image" src="https://github.com/user-attachments/assets/fcf1f1b0-2e95-486d-b945-33763464c74c" />
+- allow or deny `msg.sender` (rules 1 and 2)
+- bound `block.timestamp` (rule 3)
+- require an exact selector plus sender and, optionally, one calldata word (rules 5–7)
+- bound one `uint256` argument with an open interval (rule 8)
+- compare the caller's **global** Sendra accumulators with a strict greater-than or less-than (rules 10–28)
 
+Rules on one selector were AND. A selector with an explicit no-op (rule 0) was public. Global rules were stored and not enforced. The per-enclave `ruler` field was stored and ignored; every enclave used whatever `UniversalRuler` the AddressProvider currently returned.
 
-## Flow 
+V1 did **not** enforce specific accumulators (rules 30–36 were documented only). Rule 4 (frequency) was an empty branch. Any other id was skipped. A selector with no stored rules was allowed. `cumulativeRealizedPnl` and `highWaterMark` were cast to `uint256`, so a negative PnL passed a "greater than" check. Rules could be rewritten later by any protocol contract. `msg.value` was forwarded with no policy.
 
-SRPE is designed to separate 4 responsibilities:
+## What V2 does
 
-- **RPFPDeployer**: deploys and registers a new RPFP (Rule Programmable Financial Product).
-- **RPFPStorage**: stores RPFP configuration (implementation, owners, global rules, per-selector rules, etc.).
-- **UniversalExecutor**: the single user entrypoint (`execute()`), performs a `delegatecall` into the product implementation (LogicExecutor) **only if** rules pass.
-- **UniversalRuler**: validates the action before execution by reading rules and (when applicable) reputation/accumulators from the Sendra system.
+V2 keeps the same contracts, storage names, and numeric rule ids. It closes the fail-open paths and adds the rules an LP enclave actually needs.
 
-In practice the flow is:
+Enforcement, before `delegatecall`:
 
-1) A developer calls `deployRPFP()`. A `UniversalExecutor` instance wired to the `AddressProvider` is deployed, the RPFP is created in `RPFPStorage`, and per-function (selector) rules are registered.
+1. The selector must have been registered. An unknown selector reverts.
+2. Global rules and the selector's rules are both applied. Any failure reverts. There is no OR across rules.
+3. Inside one rule, an address list or a token pair is the OR: the argument must be one of the configured values.
+4. An unknown rule id reverts. A declared `ruleCount` that does not match the array reverts.
+5. Non-zero `msg.value` reverts unless rule 43 is on the global set or on that selector.
+6. Signed accumulator fields are compared as `int256`.
+7. Specific Sendra books are readable by `uint64` key (rules 30–36), including one 32-byte metric blob.
+8. Derived figures (rule 44) are computed from the global book: profit factor, win rate, ROI, current drawdown, average hold, net PnL, seniority, open positions. Undefined samples fail closed.
+9. Calldata can be constrained without repeating the selector: exact word (37), address allow and deny (38, 39), inclusive uint range and bound (40, 41), recipient equal to the sender or the executor (42), and an ordered or unordered token pair (45).
+10. Rule 4 is a real cooldown, per enclave, selector, and sender. The first call is allowed. `previewExecution` shows the same rejection and does not record the call.
 
-Source: `src/core/RPFPDeployer.sol` (lines 19-55)
+After `deployRPFP` returns, function rules are frozen. A later protocol call cannot rewrite them. The executor pins `RPFPStorage` and `UniversalRuler`. The ruler pins `RPFPStorage` and `SendraStorage`. Changing the AddressProvider does not retarget an enclave that is already deployed. A custom ruler address is rejected, because a private ruler could allow every call.
 
-```solidity
-function deployRPFP(SRPELib.NewRPFPInputs memory _newRPFPInputs) public {
-    // Deploy an executor instance wired to the AddressProvider.
-    address executor = UniversalExecutorFactory(addressProvider.getAddress("UniversalExecutorFactory"))
-        .deploySendraExecutor(address(addressProvider));
-    _newRPFPInputs.rules.ruleCount = _newRPFPInputs.rules.rules.length;
+`previewExecution(actionData, sender, rpfpId, callValue)` is the view path for wallets and UIs.
 
-    if (_newRPFPInputs.rules.ruleCount == 0 || _newRPFPInputs.rules.ruleCount > MAX_RULES)
-        revert InvalidRules(_newRPFPInputs.rules.ruleCount, MAX_RULES);
+## Trust boundary
 
-    if (_newRPFPInputs.functionSelectors.length != _newRPFPInputs.functionSelectorRules.length) {
-        revert FunctionRulesLengthMismatch(_newRPFPInputs.functionSelectors.length, _newRPFPInputs.functionSelectorRules.length);
-    }
-    
-    uint256 rpfpId = RPFPStorage(addressProvider.getAddress("RPFPStorage")).createRPFP(
-        _newRPFPInputs._type,
-        executor,
-        _newRPFPInputs.implementation,
-        _newRPFPInputs.ruler,
-        _newRPFPInputs.owners,
-        _newRPFPInputs.description,
-        _newRPFPInputs.extraData,
-        _newRPFPInputs.rules,
-        _newRPFPInputs.instructions
-    );
+SRPE checks the call. It does not sandbox the logic contract.
 
-    // Store per-function rules blobs (selector => Rules)
-    for (uint256 i = 0; i < _newRPFPInputs.functionSelectors.length; i++) {
-        SRPELib.Rules memory fr = _newRPFPInputs.functionSelectorRules[i];
-        fr.ruleCount = fr.rules.length;
-        if (fr.ruleCount == 0 || fr.ruleCount > MAX_RULES) {
-            revert InvalidRules(fr.ruleCount, MAX_RULES);
-        }
-        RPFPStorage(addressProvider.getAddress("RPFPStorage")).setFunctionRules(rpfpId, _newRPFPInputs.functionSelectors[i], fr);
-    }
+- The logic contract is trusted to **use** the arguments the policy checked. A malicious implementation can ignore the pool argument and add liquidity somewhere else. That is a property of `delegatecall`, not something a calldata rule can fix.
+- Product code may use the executor's persistent storage. The reentrancy guard lives in namespaced transient slots (`srpe.executor.depth`, `srpe.executor.logic`) and must not be overwritten by the product.
+- Sendra Storage is the reputation root. If that contract reports a false book, accumulator rules follow it. V2 pins which storage the ruler reads so a provider swap cannot substitute a fake book for existing enclaves.
+- Cooldown uses `block.timestamp`. It is a spacing rule, not a source of randomness.
+- Only static ABI words are read. For `provideLiquidity(address pool, address token0, address token1, uint256 amount, address recipient, bytes data)` the indexes are 0..4. Index 5 is the offset of `data`, not the bytes themselves. Do not place a dynamic argument before a word you need to constrain.
+- A function that accepts ETH must be `payable`. `delegatecall` preserves `msg.value`, and Solidity rejects value on a non-payable function.
+- Rule 8's range is inclusive in V2. V1 used `min < value < max`.
 
-    emit RPFPDeployed(executor, rpfpId);
-}
-```
+Owners are metadata. They are not an admin key. To change policy, deploy a new enclave.
 
-2) A user signs and calls `UniversalExecutor.execute(...)`. The executor:
-- reads the RPFP (`readRPFPById`) to get the implementation (LogicExecutor)
-- validates the action via `UniversalRuler`
-- if it passes, performs `delegatecall` to the implementation
+## Anyone can deploy an RPFP
 
-Source: `src/core/execution/UniversalExecutor.sol` (lines 17-32)
+`RPFPDeployer.deployRPFP` is public. There is no allowlist on the caller. The only gated writes are inside `RPFPStorage`, and they accept **the canonical deployer contract**, not the user. A third party does not need a Sendra role.
+
+1. Deploy your logic contract (the functions you want the enclave to run).
+2. Encode rules with `SRPERules` (`src/libs/SRPE/SRPERules.sol`).
+3. Call `RPFPDeployer` from the AddressProvider (`getAddress("RPFPDeployer")`).
+4. Use the returned `executor` and `rpfpId`. Users call `executor.execute({ rpfpId, actionData })`.
+
+If `owners` is empty, the deployer stores `msg.sender` as owner and as `creator`. That is a label for indexers. It does not grant later writes.
 
 ```solidity
-function execute(SRPELib.ExecutionParams memory _executionParams) public payable returns (bytes memory) {
-    SRPELib.RPFPForRead memory rpfp =
-        RPFPStorage(addressProvider.getAddress("RPFPStorage")).readRPFPById(_executionParams.rpfpId);
-    address target = rpfp.implementation;
+import {SRPERules} from "src/libs/SRPE/SRPERules.sol";
+import {SRPELib} from "src/libs/SRPE/SRPE.lib.sol";
 
-    // Check rules (reverts if invalid).
-    UniversalRuler(addressProvider.getAddress("UniversalRuler")).checkExecution(
-        _executionParams.actionData,
-        msg.sender,
-        _executionParams.rpfpId
-    );
+bytes4 sel = bytes4(keccak256("provideLiquidity(address,address,address,uint256,address)"));
+address[] memory pools = new address[](1);
+pools[0] = allowedPool;
+address[] memory tokenA = new address[](1);
+address[] memory tokenB = new address[](1);
+tokenA[0] = usdc;
+tokenB[0] = weth;
 
-    (bool success, bytes memory result) = target.delegatecall(_executionParams.actionData);
+SRPELib.Rule[] memory rules = new SRPELib.Rule[](3);
+rules[0] = SRPERules.paramAllowlist(0, pools);
+rules[1] = SRPERules.paramPair(1, 2, true, tokenA, tokenB);
+rules[2] = SRPERules.paramUintRange(3, 100e6, 1_000e6);
 
-    if (!success) {
-        assembly {
-            revert(add(result, 0x20), mload(result))
-        }
-    }
+SRPELib.NewRPFPInputs memory inputs = SRPERules.publicAction(logic, sel, "LP enclave");
+inputs.functionSelectorRules[0] = SRPERules.pack(rules);
 
-    return result;
-}
+(address executor, uint256 rpfpId) = RPFPDeployer(provider.getAddress("RPFPDeployer")).deployRPFP(inputs);
 ```
 
-## Rules by `functionSelector` (set, read, validate)
+Template script: `script/deployRPFP.s.sol`. Set `ADDRESS_PROVIDER` and `IMPLEMENTATION`, then broadcast. Replace the public `touch()` payload with the rules above.
 
-### Setting rules (deploy-time)
-At deploy-time, selector-specific rules are stored via `RPFPStorage.setFunctionRules(...)`.
+What you cannot do without being protocol: write `RPFPStorage` yourself, swap the ruler, or unfreeze an enclave. That is the integrity of the registry, not a gate on who may create products.
 
-Source: `src/core/storage/RPFPStorage.sol` (lines 68-70)
+## Flow
 
-```solidity
-function setFunctionRules(uint256 _id, bytes4 _functionSelector, SRPELib.Rules calldata _rules) public onlyProtocol {
-    rpfps[_id].functionRules[_functionSelector] = _rules;
-}
+1. `RPFPDeployer.deployRPFP` validates every rule, deploys an executor bound to the current storage and ruler, writes the enclave, stores selector rules, and freezes them.
+2. A user calls `UniversalExecutor.execute`. The executor confirms the id belongs to itself, then `UniversalRuler.checkExecution`.
+3. On success the executor `delegatecall`s `actionData` into the logic contract and emits `Executed`.
+
+Unregistered selectors never reach the logic contract. The same is true of a failed rule.
+
+Gas on the hot path: the executor reads executor and implementation only (not owners or description). The ruler loads global rules and selector rules in one call. Global accumulators are loaded once, and only if a rule needs them. A specific book is loaded once per key. AddressProvider is not consulted during `execute`.
+
+Caps, set at deploy and checked again at runtime: 16 rules per set, 32 selectors, 16 addresses in a list, parameter index 0..15.
+
+## Rule ids
+
+| Id | Applies to | Payload |
+| --- | --- | --- |
+| 0, 9 | nothing | explicit no-op |
+| 1, 2 | sender | `address[]` allow / deny |
+| 3 | `block.timestamp` | `(uint256 threshold, uint256 op)` |
+| 4 | cooldown | `(uint256 minInterval)` seconds, must be non-zero |
+| 5 | sender and selector | `(bytes4 selector, address sender)` |
+| 6 | sender, selector, word | `(bytes4, address, uint256 index, bytes32 expected)` |
+| 7 | selector and word | `(bytes4, uint256 index, bytes32 expected)` |
+| 8 | uint argument | `ruleData (min, max)`, `extraData (uint256 index)`, inclusive |
+| 10–28 | global accumulator | `(uint256 threshold, uint256 op)`. 14 and 17 are signed |
+| 30–35 | specific accumulator | `(uint64 key, int256 threshold, uint256 op)` |
+| 36 | specific metric blob | `(uint64 key, uint256 index, uint8 kind, int256 threshold, uint256 op)`. Kind 0 is uint, 1 is int. The blob must be 32 bytes |
+| 37 | calldata word | `(uint256 index, bytes32 expected)` |
+| 38, 39 | address argument | `(uint256 index, address[] list)` allow / deny |
+| 40 | uint argument | `(uint256 index, uint256 min, uint256 max)` inclusive |
+| 41 | uint argument | `(uint256 index, uint256 threshold, uint256 op)` |
+| 42 | address argument | `(uint256 index, uint8 account)`. 0 = sender, 1 = executor |
+| 43 | `msg.value` | `(uint256 threshold, uint256 op)` |
+| 44 | derived global metric | `(uint8 metricId, int256 threshold, uint256 op)` |
+| 45 | token pair | `(uint256 indexA, uint256 indexB, bool unordered, address[] a, address[] b)` |
+
+Comparison `op`: 0 observed > threshold, 1 observed < threshold, 2 `>=`, 3 `<=`, 4 `==`. Ops 0 and 1 are the V1 encoding.
+
+Global rules may not mention a selector or a parameter index. Put input rules on the selector. Types 5–8, 37–42, and 45 are rejected on the global set.
+
+Derived metric ids: 0 profit factor in bps, 1 win rate in bps, 2 ROI in bps (signed), 3 current drawdown, 4 average holding time, 5 net realized PnL (signed), 6 seniority in seconds, 7 open positions. ROI with zero capital in fails. A win rate with wins but zero closes fails. Zero wins and zero closes is a 0 win rate. Positive profit and zero losses is the maximum profit factor.
+
+The authoritative encoding comments are on `SRPELib.Rule` in `src/libs/SRPE/SRPE.lib.sol`.
+
+### LP enclave
+
+`provideLiquidity(address pool, address token0, address token1, uint256 amount, address recipient)` can be gated, in one selector, by:
+
+- rule 1: operator allowlist, or rule 21 / 44 if any reputed operator may act
+- rule 38 on index 0: pool allowlist
+- rule 45 on indexes 1 and 2: the USDC/WETH pair, either order
+- rule 40 on index 3: amount between 100 and 1_000 USDC, inclusive
+- rule 42 on index 4, account = 1: the position recipient is the executor, not the operator
+- rule 30: specific PnL for that strategy key is above a threshold
+
+A call that names another pool, another token, an out-of-range amount, or a recipient other than the enclave reverts with `InvalidAction(ruleIndex, selector)` before the logic runs. `test/SRPEV2.t.sol` deploys this shape.
+
+## Tests
+
+```bash
+forge test --match-contract "RPFPFlowTest|SRPEV2Test"
 ```
 
-### Reading rules (runtime)
-`UniversalRuler` derives the selector from `actionData` and fetches the configured rules for that selector.
+`RPFPFlow` covers the V1 path that still holds: exact input word, deadline, win-count, explicit no-op, executor binding. It also covers the V2 fail-closed cases: unknown selector, bare ETH, frozen rules.
 
-Source: `src/core/UniversalRuler.sol` (lines 18-26)
-
-```solidity
-function getFunctionsRules(uint256 _rpfpId, bytes4 _functionSelector) internal view returns (SRPELib.Rules memory) {
-    SRPELib.Rules memory rules =
-        RPFPStorage(addressProvider.getAddress("RPFPStorage")).getFunctionRules(_rpfpId, _functionSelector);
-    return rules;
-}
-
-function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
-    bytes4 functionSelector = _getSelector(_actionData);
-    SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
-    // ...
-}
-```
-
-### Validation (runtime)
-`checkExecution()` iterates the rules registered for that selector and reverts if any of them fails (AND semantics).
-Additionally, when reputation rules are present (10+), it reads accumulators from `SendraStorage` (resolved via `AddressProvider`).
-
-Source: `src/core/UniversalRuler.sol` (lines 23-116)
-
-```solidity
-function checkExecution(bytes memory _actionData, address _sender, uint256 _rpfpId) public view {
-    bytes4 functionSelector = _getSelector(_actionData);
-    SRPELib.Rules memory rules = getFunctionsRules(_rpfpId, functionSelector);
-    SendraLib.GlobalAccumulators memory gAccumulators;
-    bool isGlobalAccumulatorsInitialized = false;
-
-    for (uint256 i = 0; i < rules.ruleCount; i++) {
-        if (
-            !isGlobalAccumulatorsInitialized &&
-            (rules.rules[i].ruleType == 10 ||
-                rules.rules[i].ruleType == 11 ||
-                rules.rules[i].ruleType == 12 ||
-                rules.rules[i].ruleType == 13 ||
-                rules.rules[i].ruleType == 14 ||
-                rules.rules[i].ruleType == 15 ||
-                rules.rules[i].ruleType == 16 ||
-                rules.rules[i].ruleType == 17 ||
-                rules.rules[i].ruleType == 18 ||
-                rules.rules[i].ruleType == 19 ||
-                rules.rules[i].ruleType == 20)
-        ) {
-            ISendraStorage sendraStorage = ISendraStorage(addressProvider.getAddress("SendraStorage"));
-            gAccumulators = sendraStorage.getUserGlobalAccumulators(_sender);
-            isGlobalAccumulatorsInitialized = true;
-        }
-
-        // Examples: whitelist/blacklist/limits by input/reputation...
-        // If any rule fails, it reverts with InvalidAction(i, functionSelector)
-    }
-}
-```
+`SRPEV2` covers signed PnL, specific keys and metrics, derived win rate, the LP input rules, inclusive ranges, call value, cooldown, preview, reentrancy, global rules, provider swaps, and rejected deployments.

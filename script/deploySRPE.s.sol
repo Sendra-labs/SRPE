@@ -1,74 +1,76 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Script, console} from "forge-std/Script.sol";
+import { Script, console } from "forge-std/Script.sol";
+import { RPFPStorage } from "../src/core/storage/RPFPStorage.sol";
+import { UniversalRuler } from "../src/core/UniversalRuler.sol";
+import { UniversalExecutorFactory } from "../src/core/UniversalExecutorFactory.sol";
+import { RPFPDeployer } from "../src/core/RPFPDeployer.sol";
 
-import {ISendraAddressProvider} from "../src/interfaces/isendra/ISendraAddressProvider.sol";
-import {RPFPStorage} from "../src/core/storage/RPFPStorage.sol";
-import {UniversalRuler} from "../src/core/UniversalRuler.sol";
-import {UniversalExecutorFactory} from "../src/core/UniversalExecutorFactory.sol";
-import {RPFPDeployer} from "../src/core/RPFPDeployer.sol";
+interface IProvider {
+    function getAddress(string calldata name) external view returns (address);
+    function proposeAddress(string calldata name, address addr) external;
+}
+
+interface IRoles {
+    function allowContract(address account, string calldata name) external;
+    function isProtocolContract(address account) external view returns (bool);
+}
 
 /**
- * @title DeploySRPE
- * @notice Deploys the SRPE core contracts and registers them in the Sendra AddressProvider.
+ * @notice Deploys SRPE onto the AddressProvider in ADDRESS_PROVIDER.
+ *         Three hot admins vote. SendraStorage stays as already registered.
+ *         RPFPDeployer is allowlisted because it writes RPFPStorage.
  *
- * Prerequisites:
- * - The broadcaster must be an admin on the Sendra AddressProvider.
- * - SendraStorage is already deployed and its address is known.
- *
- * Usage:
- *   forge script script/deploySRPE.s.sol:DeploySRPE --rpc-url arbitrum --broadcast
- *
- * Requires ADMIN1_PRIVATE_KEY in .env (admin on the Sendra AddressProvider).
+ *         The deploy to run is LPCreditEnclaves/script/DeploySRPE.s.sol.
+ *         This file is the same flow for this repo.
  */
 contract DeploySRPE is Script {
-    address public constant ADDRESS_PROVIDER = 0xaF7A2feFBA6Acc09e62011d0359dC06e0e1245f5;
-    address public constant SENDRA_STORAGE = 0x898258E70C2b3626EF65B5B4c39bb6F37ebcD4Fd;
-
     function run() public {
-        ISendraAddressProvider provider = ISendraAddressProvider(ADDRESS_PROVIDER);
+        if (block.chainid != 42161) revert WrongChain();
+        IProvider provider = IProvider(vm.envAddress("ADDRESS_PROVIDER"));
+        IRoles roles = IRoles(provider.getAddress("Roles"));
+        address sendraStorage = provider.getAddress("SendraStorage");
 
-        uint256 adminKey = vm.envUint("ADMIN1_PRIVATE_KEY");
-        vm.startBroadcast(adminKey);
-
-        RPFPStorage rpfpStorage = new RPFPStorage(ADDRESS_PROVIDER);
-        UniversalRuler universalRuler = new UniversalRuler(ADDRESS_PROVIDER);
-        UniversalExecutorFactory universalExecutorFactory = new UniversalExecutorFactory();
-        RPFPDeployer rpfpDeployer = new RPFPDeployer(ADDRESS_PROVIDER);
-
-        provider.setAddress("SendraStorage", SENDRA_STORAGE);
-        provider.setAddress("RPFPStorage", address(rpfpStorage));
-        provider.setAddress("UniversalRuler", address(universalRuler));
-        provider.setAddress("UniversalExecutorFactory", address(universalExecutorFactory));
-        provider.setAddress("RPFPDeployer", address(rpfpDeployer));
-
+        uint256[3] memory keys = _keys();
+        vm.startBroadcast(keys[0]);
+        RPFPStorage rpfpStorage = new RPFPStorage(address(provider));
+        UniversalRuler ruler = new UniversalRuler(address(provider), address(rpfpStorage), sendraStorage);
+        UniversalExecutorFactory factory = new UniversalExecutorFactory();
+        RPFPDeployer deployer = new RPFPDeployer(address(provider));
         vm.stopBroadcast();
 
-        _logDeployment(provider, rpfpStorage, universalRuler, universalExecutorFactory, rpfpDeployer);
+        _propose(provider, keys, "RPFPStorage", address(rpfpStorage));
+        _propose(provider, keys, "UniversalRuler", address(ruler));
+        _propose(provider, keys, "UniversalExecutorFactory", address(factory));
+        _propose(provider, keys, "RPFPDeployer", address(deployer));
+        if (!roles.isProtocolContract(address(deployer))) {
+            for (uint256 i = 0; i < 3; i++) {
+                vm.startBroadcast(keys[i]);
+                roles.allowContract(address(deployer), "RPFPDeployer");
+                vm.stopBroadcast();
+            }
+        }
+
+        console.log("RPFPStorage", address(rpfpStorage));
+        console.log("UniversalRuler", address(ruler));
+        console.log("UniversalExecutorFactory", address(factory));
+        console.log("RPFPDeployer", address(deployer));
     }
 
-    function _logDeployment(
-        ISendraAddressProvider provider,
-        RPFPStorage rpfpStorage,
-        UniversalRuler universalRuler,
-        UniversalExecutorFactory universalExecutorFactory,
-        RPFPDeployer rpfpDeployer
-    ) internal view {
-        console.log("=== SRPE deployment complete ===");
-        console.log("addressProvider:", ADDRESS_PROVIDER);
-        console.log("");
-        console.log("--- deployed ---");
-        console.log("rpfpStorage:", address(rpfpStorage));
-        console.log("universalRuler:", address(universalRuler));
-        console.log("universalExecutorFactory:", address(universalExecutorFactory));
-        console.log("rpfpDeployer:", address(rpfpDeployer));
-        console.log("");
-        console.log("--- registered in AddressProvider ---");
-        console.log("SendraStorage:", provider.getAddress("SendraStorage"));
-        console.log("RPFPStorage:", provider.getAddress("RPFPStorage"));
-        console.log("UniversalRuler:", provider.getAddress("UniversalRuler"));
-        console.log("UniversalExecutorFactory:", provider.getAddress("UniversalExecutorFactory"));
-        console.log("RPFPDeployer:", provider.getAddress("RPFPDeployer"));
+    function _keys() internal view returns (uint256[3] memory keys) {
+        keys[0] = vm.envUint("HOT_ADMIN1_PRIVATE_KEY");
+        keys[1] = vm.envUint("HOT_ADMIN2_PRIVATE_KEY");
+        keys[2] = vm.envUint("HOT_ADMIN3_PRIVATE_KEY");
     }
+
+    function _propose(IProvider provider, uint256[3] memory keys, string memory name, address addr) internal {
+        for (uint256 i = 0; i < 3; i++) {
+            vm.startBroadcast(keys[i]);
+            provider.proposeAddress(name, addr);
+            vm.stopBroadcast();
+        }
+    }
+
+    error WrongChain();
 }

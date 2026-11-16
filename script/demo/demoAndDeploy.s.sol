@@ -30,7 +30,8 @@ contract DemoAndDeploy is Script {
         addressProvider.setRoles(address(roles));
 
         RPFPStorage rpfpStorage = new RPFPStorage(address(addressProvider));
-        UniversalRuler universalRuler = new UniversalRuler(address(addressProvider));
+        UniversalRuler universalRuler =
+            new UniversalRuler(address(addressProvider), address(rpfpStorage), address(mockedSendra));
         UniversalExecutorFactory universalExecutorFactory = new UniversalExecutorFactory();
         RPFPDeployer rpfpDeployer = new RPFPDeployer(address(addressProvider));
 
@@ -40,6 +41,7 @@ contract DemoAndDeploy is Script {
         addressProvider.setUniversalExecutorFactory(address(universalExecutorFactory));
         addressProvider.setRPFPStorage(address(rpfpStorage));
         addressProvider.setUniversalRuler(address(universalRuler));
+        addressProvider.setRPFPDeployer(address(rpfpDeployer));
 
         console.log("simpleStorage:", address(simpleStorage));
         console.log("simpleLogic:", address(simpleLogic));

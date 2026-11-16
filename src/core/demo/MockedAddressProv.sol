@@ -9,6 +9,7 @@ contract MockedAddressProvider {
     address public RPFPStorage;
     address public UniversalRuler;
     address public Roles;
+    address public RPFPDeployer;
 
     error AddressNotFound(string contractName);
 
@@ -20,6 +21,7 @@ contract MockedAddressProvider {
         if (n == keccak256("RPFPStorage")) return RPFPStorage;
         if (n == keccak256("UniversalRuler")) return UniversalRuler;
         if (n == keccak256("Roles")) return Roles;
+        if (n == keccak256("RPFPDeployer")) return RPFPDeployer;
 
         revert AddressNotFound(_name);
     }
@@ -42,6 +44,10 @@ contract MockedAddressProvider {
 
     function setRoles(address _roles) external {
         Roles = _roles;
+    }
+
+    function setRPFPDeployer(address _rpfpDeployer) external {
+        RPFPDeployer = _rpfpDeployer;
     }
 
 }

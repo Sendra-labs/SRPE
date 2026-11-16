@@ -1,5 +1,7 @@
 ## SRPE Deep Dive Article
 
+> **V2 is the current runtime.** This article describes the V1 MVP. V2 keeps the same contracts and rule ids, and it closes the fail-open cases below: unknown selectors, unknown rule ids, specific accumulators that were only documented, the unsigned cast of realized PnL, and rules that could be rewritten after deploy. Input rules for pools, token pairs, amounts, and recipients are ids 37–45. See [SRPE V2](SRPE-V2.md) and the repository README. Do not ship a policy from the snippets in this file without checking that document.
+
 **SendraLabs Rule-Programmable Finance Environment (SRPE)** is a **non-custodial, rule-enforced execution environment** where financial products operate inside programmable constraints that can be tied to a reputation/accounting layer. The goal is to enable financial primitives that are impractical in DeFi without trusted intermediaries or heavy overcollateralization.
 
 This repository contains the **first MVP version** of SRPE, designed to be **scalable and flexible** for deploying new **Rule-Programmable Financial Products (RPFPs)** governed by:
@@ -89,15 +91,15 @@ In storage, SRPE keeps:
 
 At runtime, the actual enforcement path is *selector-based*: the `UniversalRuler` extracts the selector from `actionData` and fetches the rule blob for that selector.
 
-### Rules available in this MVP
+### Rules available in the V1 MVP
 
-The following list reflects what is currently implemented in `UniversalRuler.checkExecution(...)` and `RulesHelper`:
+The following list is the V1 surface of `UniversalRuler` and `RulesHelper`. V2 adds the ids in `docu/SRPE-V2.md` and rejects ids that V1 skipped.
 
 - **0 — No rule**: placeholder/no-op.
 - **1 — Whitelist**: allow only senders inside an address list.
 - **2 — Blacklist**: deny senders inside an address list.
 - **3 — Time limit**: compare `block.timestamp` against a threshold.
-- **4 — Frequency limit**: *placeholder (not implemented yet)*.
+- **4 — Frequency limit**: placeholder in V1 (the branch did not revert). V2 enforces it as a per-sender cooldown. An unknown id in V1 was skipped; V2 reverts.
 - **5 — Allow specific sender for a specific function**: exact `(selector, sender)` match.
 - **6 — Allow specific sender + function + exact input word**: exact match on `(selector, sender, paramIndex, expectedWord)`.
 - **7 — Allow specific function + exact input word**: exact match on `(selector, paramIndex, expectedWord)`.
@@ -105,10 +107,7 @@ The following list reflects what is currently implemented in `UniversalRuler.che
 - **9 — Empty rule**: placeholder/no-op.
 - **10..28 — Reputation/accumulator limits (global)**: compare a Sendra global accumulator field against a threshold (see “UniversalRuler” section).
 
-> Notes for future extension
->
-> - There are additional rule type IDs documented in `SRPELib` beyond what `UniversalRuler` currently enforces.
-> - The set above is the *effective* rule surface today (what actually gates execution).
+> V1 only. Ids 30–36 were documented and not enforced, so a policy that used them did not constrain the call. V2 enforces 30–36 and adds 37–45. The effective surface is `docu/SRPE-V2.md`.
 
 ### Rule building patterns (encodings)
 
@@ -221,7 +220,8 @@ inputs.implementation = logicExecutor;
 inputs.owners = owners;
 inputs.description = "My RPFP";
 
-// 1) optional: global rules catalog (not the gating source in current flow)
+// 1) global rules. V1 stored these and did not enforce them.
+//    V2 AND-s them with the selector rules. See docu/SRPE-V2.md.
 inputs.rules = SRPELib.Rules({
   ruleCount: 2,
   rules: globalRulesArray
