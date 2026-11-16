@@ -49,7 +49,7 @@ contract RPFPFlowTest is Test {
         addressProvider.setRoles(address(roles));
 
         rpfpStorage = new RPFPStorage(address(addressProvider));
-        ruler = new UniversalRuler(address(addressProvider));
+        ruler = new UniversalRuler(address(addressProvider), address(rpfpStorage), address(mockedSendra));
         executorFactory = new UniversalExecutorFactory();
         deployer = new RPFPDeployer(address(addressProvider));
 
@@ -59,6 +59,7 @@ contract RPFPFlowTest is Test {
         addressProvider.setRPFPStorage(address(rpfpStorage));
         addressProvider.setUniversalRuler(address(ruler));
         addressProvider.setUniversalExecutorFactory(address(executorFactory));
+        addressProvider.setRPFPDeployer(address(deployer));
 
         // Create RPFP with per-selector rules
         SRPELib.NewRPFPInputs memory inputs;
@@ -142,17 +143,43 @@ contract RPFPFlowTest is Test {
         executor.execute(p);
     }
 
-    function test_secondFunction_winCountRule_passesForAddressZeroAndFailsForOthers() public {
+    function test_secondFunction_winCountRule_passesForReputedSenderAndFailsForOthers() public {
         SRPELib.ExecutionParams memory p;
         p.rpfpId = rpfpId;
         p.actionData = abi.encodeWithSelector(SECOND_SEL, uint256(42));
 
-        vm.prank(address(0));
+        vm.prank(mockedSendra.REPUTED());
         executor.execute(p);
         assertEq(simpleStorage.count1(), 42);
 
+        vm.prank(DISALLOWED_ADDR);
         vm.expectRevert(abi.encodeWithSelector(UniversalRuler.InvalidAction.selector, 0, SECOND_SEL));
         executor.execute(p);
+    }
+
+    function test_unregisteredSelector_revertsBeforeDelegatecall() public {
+        bytes4 unknown = bytes4(keccak256("notRegistered(uint256)"));
+        SRPELib.ExecutionParams memory p;
+        p.rpfpId = rpfpId;
+        p.actionData = abi.encodeWithSelector(unknown, uint256(1));
+
+        vm.expectRevert(abi.encodeWithSelector(UniversalRuler.SelectorNotAllowed.selector, unknown));
+        executor.execute(p);
+    }
+
+    function test_callValueWithoutRule_reverts() public {
+        SRPELib.ExecutionParams memory p;
+        p.rpfpId = rpfpId;
+        p.actionData = abi.encodeWithSelector(THIRD_SEL, uint256(1));
+
+        vm.expectRevert(UniversalRuler.UnexpectedCallValue.selector);
+        executor.execute{value: 1}(p);
+    }
+
+    function test_rulesStayFrozenAfterDeploy() public {
+        vm.prank(address(deployer));
+        vm.expectRevert(abi.encodeWithSelector(RPFPStorage.RulesLocked.selector, rpfpId));
+        rpfpStorage.setFunctionRules(rpfpId, THIRD_SEL, _noOpRules());
     }
 
     function test_thirdFunction_noOpRulesAlwaysAllow() public {
